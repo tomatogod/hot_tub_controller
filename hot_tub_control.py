@@ -21,7 +21,7 @@ sensor_1 = "/sys/bus/w1/devices/28-01144e89e7aa/w1_slave"  # Solar panel
 sensor_2 = "/sys/bus/w1/devices/28-011452dc93aa/w1_slave"  # Hot Tub
 
 # define Elasticsearch address
-es=Elasticsearch([{'host':'192.168.1.192','port':9200}])
+es=Elasticsearch([{'host':'localhost','port':9200}])
 
 # get time
 def the_time_is():
@@ -133,10 +133,8 @@ while True:
     # write temperture readings to log
     log_file.write(" Solar Panel: " + str(temp1) + "," + " Hot Tub: " + str(temp2) + ",")
 
-	# determine if heater should be on
+    # determine if heater should be on
     if should_heater_be_on() == 1 and temp2 < 35.0:
-        new_heater_state = 1
-    elif (temp1 <= 5 and temp1 >= 1) or (temp2 <= 5 and temp2 >= 1):
         new_heater_state = 1
     else:
         new_heater_state = 0
@@ -147,6 +145,8 @@ while True:
     elif temp1 > 70:
         log_file.write(" Sensor error no change,")
     elif temp1 > (temp2 + 15):
+        new_pump_state = 1
+    elif temp1 <= 5:
         new_pump_state = 1
     elif current_heater_state == 1:
         new_pump_state = 1
