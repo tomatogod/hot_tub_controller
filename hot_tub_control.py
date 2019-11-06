@@ -1,16 +1,11 @@
-# Hot Tub Controller - one temperature sensor application to switch on Kasa TP-Link smart plugs.
+# Hot Tub Controller
 # Written by ToMaToGoD
-# Latest version 2019/09/10 - v0.9
 
 import os
 import time
 import datetime
 import subprocess
 from elasticsearch import Elasticsearch
-
-# load probe modules
-#os.system('modprobe w1-gpio')
-#os.system('modprobe w1-therm')
 
 # set working directory
 working_directory = "/home/pi/Applications/hot_tub_controller/"
@@ -140,11 +135,8 @@ while True:
         new_heater_state = 0
 
     # determine if pump should be on
-    if temp1 < 1:
-        log_file.write(" Sensor error no change,")
-    elif temp1 > 70:
-        log_file.write(" Sensor error no change,")
-    elif temp1 > (temp2 + 15):
+    
+if temp1 > (temp2 + 15):
         new_pump_state = 1
     elif temp1 <= 5:
         new_pump_state = 1
