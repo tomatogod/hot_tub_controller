@@ -135,8 +135,7 @@ while True:
         new_heater_state = 0
 
     # determine if pump should be on
-    
-if temp1 > (temp2 + 15):
+    if temp1 > (temp2 + 15):
         new_pump_state = 1
     elif temp1 <= 5:
         new_pump_state = 1
