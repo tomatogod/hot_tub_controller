@@ -137,7 +137,8 @@ while True:
     # determine if pump should be on
     if temp1 > (temp2 + 15):
         new_pump_state = 1
-    elif temp1 <= 5:
+    # frost protection less than 1
+    elif temp1 <= 1:
         new_pump_state = 1
     elif current_heater_state == 1:
         new_pump_state = 1
