@@ -7,6 +7,10 @@ import datetime
 import subprocess
 from elasticsearch import Elasticsearch
 
+# load probe modules
+os.system('modprobe w1-gpio')
+os.system('modprobe w1-therm')
+
 # set working directory
 working_directory = "/home/pi/Applications/hot_tub_controller/"
 log_output_folder = "/home/pi/Applications/hot_tub_controller/logs/"
