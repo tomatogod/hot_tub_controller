@@ -12,15 +12,17 @@ os.system('modprobe w1-gpio')
 os.system('modprobe w1-therm')
 
 # set working directory
-working_directory = "/home/pi/Applications/hot_tub_controller/"
-log_output_folder = "/home/pi/Applications/hot_tub_controller/logs/"
+working_directory = "/home/pi/apps/hot_tub_controller/"
+log_output_folder = "/home/pi/apps/hot_tub_controller/logs/"
 
 # define sensor folders
 sensor_1 = "/sys/bus/w1/devices/28-01144e89e7aa/w1_slave"  # Solar panel
 sensor_2 = "/sys/bus/w1/devices/28-011452dc93aa/w1_slave"  # Hot Tub
+sensor_3 = "/sys/bus/w1/devices/28-011452c161aa/w1_slave"  # Spare
+sensor_4 = "/sys/bus/w1/devices/28-011452e79daa/w1_slave"  # Spare
 
 # define Elasticsearch address
-es=Elasticsearch([{'host':'localhost','port':9200}])
+es=Elasticsearch([{'host':'homeassistant.tomatogod','port':9200}])
 
 # get time
 def the_time_is():
@@ -34,14 +36,14 @@ def es_time():
 
 # start logger
 the_date_is = datetime.datetime.now().strftime("%Y-%m-%d")
-log_file = open(log_output_folder + the_date_is + "_hottub.log", "a-")
+log_file = open(log_output_folder + the_date_is + "_hottub.log", "a+")
 log_file.write("\n" + the_time_is() + " Program starting...")
 log_file.close()
 
 # collect sensor raw file 1
 def raw_1():
     while os.path.isfile(sensor_1) is False:
-        log_file = open(log_output_folder + the_date_is + "_hottub.log", "a-")
+        log_file = open(log_output_folder + the_date_is + "_hottub.log", "a+")
         log_file.write("\n" + the_time_is() + " Sensor 1 failed")
         log_file.close()
         time.sleep(120)
@@ -66,7 +68,7 @@ def read_temp_1():
 # collect sensor raw file 2
 def raw_2():
     while os.path.isfile(sensor_1) is False:
-        log_file = open(log_output_folder + the_date_is + "_hottub.log", "a-")
+        log_file = open(log_output_folder + the_date_is + "_hottub.log", "a+")
         log_file.write("\n" + the_time_is() + " Sensor 2 failed")
         log_file.close()
         time.sleep(120)
@@ -76,7 +78,7 @@ def raw_2():
         f2.close()
         return lines
 
-# read raw file 1 and format temperature to degrees celcius
+# read raw file 2 and format temperature to degrees celcius
 def read_temp_2():
     lines = raw_2()
     while lines[0].strip()[-3:] != 'YES':
@@ -88,10 +90,60 @@ def read_temp_2():
         temp_c = float(temp_string) / 1000.0
         return temp_c
 
+# collect sensor raw file 3
+def raw_3():
+    while os.path.isfile(sensor_3) is False:
+        log_file = open(log_output_folder + the_date_is + "_hottub.log", "a+")
+        log_file.write("\n" + the_time_is() + " Sensor 3 failed")
+        log_file.close()
+        time.sleep(120)
+    else:
+        f3 = open(sensor_3, 'r')
+        lines = f3.readlines()
+        f3.close()
+        return lines
+
+# read raw file 3 and format temperature to degrees celcius
+def read_temp_3():
+    lines = raw_3()
+    while lines[0].strip()[-3:] != 'YES':
+        time.sleep(0.2)
+        lines = raw_3()
+    equals_pos = lines[1].find('t=')
+    if equals_pos != -1:
+        temp_string = lines[1][equals_pos+2:]
+        temp_c = float(temp_string) / 1000.0
+        return temp_c
+
+# collect sensor raw file 4
+def raw_4():
+    while os.path.isfile(sensor_4) is False:
+        log_file = open(log_output_folder + the_date_is + "_hottub.log", "a+")
+        log_file.write("\n" + the_time_is() + " Sensor 4 failed")
+        log_file.close()
+        time.sleep(120)
+    else:
+        f4 = open(sensor_4, 'r')
+        lines = f4.readlines()
+        f4.close()
+        return lines
+
+# read raw file 4 and format temperature to degrees celcius
+def read_temp_4():
+    lines = raw_4()
+    while lines[0].strip()[-3:] != 'YES':
+        time.sleep(0.2)
+        lines = raw_4()
+    equals_pos = lines[1].find('t=')
+    if equals_pos != -1:
+        temp_string = lines[1][equals_pos+2:]
+        temp_c = float(temp_string) / 1000.0
+        return temp_c
+
 # compare time cheap electric time to see if heater should be on
 def should_heater_be_on():
     t = datetime.datetime.now().strftime("%H:%M")
-    if t >= ("00:30") and t < ("04:30"):
+    if t >= ("20:30") and t < ("00:30"):
         return(1)
     else:
         return(0)
@@ -122,15 +174,17 @@ current_heater_state = 0
 while True:
 
     # start to log
-    log_file = open(log_output_folder + the_date_is +"_hottub.log", "a-")
+    log_file = open(log_output_folder + the_date_is +"_hottub.log", "a+")
     log_file.write("\n" + the_time_is())
 
     # get temperature readings from sensors
     temp1 = round(read_temp_1(), 1)
     temp2 = round(read_temp_2(), 1)
+    temp3 = round(read_temp_3(), 1)
+    temp4 = round(read_temp_4(), 1)
 
     # write temperture readings to log
-    log_file.write(" Solar Panel: " + str(temp1) + "," + " Hot Tub: " + str(temp2) + ",")
+    log_file.write(" Solar Panel: " + str(temp1) + "," + " Hot Tub: " + str(temp2) + "," + " Ambient: " + str(temp3) + "," + " PiBox: " + str(temp4) + ",")
 
     # determine if heater should be on
     if should_heater_be_on() == 1 and temp2 < 35.0:
@@ -192,14 +246,25 @@ while True:
     es_payload={
         "Time":es_time(),
         "Solar Panel": temp1,
-	"Hot Tub": temp2,
+        "Hot Tub": temp2,
+	"Ambient": temp3,
+	"PiBox": temp4,
         "Pump": current_pump_state,
 	"Heater": current_heater_state,
     }
 
     # send payload to elasticsearch
-    res = es.index(index='temperatures',doc_type='readings',body=es_payload)
+    try:
+        res = es.index(index='temperatures',doc_type='readings',body=es_payload)
+    except:
+        log_file.write(" Error Sending to ElasticSearch, ignoring...")
 
-    # sleep for x seconds
+    # send payload to static docuement
+    try:
+        res = es.index(index='temperatures', doc_type='_doc', id='CSdmU3AB5mZWiXGYthJE', body=es_payload)
+    except:
+        log_file.write(" Error Sending to ElasticSearch, ignoring...")
+
+    # sleep
     log_file.close()
     time.sleep(58)
