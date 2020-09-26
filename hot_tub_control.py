@@ -1,7 +1,7 @@
 # Hot Tub Controller
 # Written by ToMaToGoD
 
-Version = 0.1
+Version = 0.4
 
 import os
 import time
@@ -20,13 +20,17 @@ log_output_folder = "/home/pi/apps/hot_tub_controller/logs/"
 
 # get time
 def the_time_is():
-    time = datetime.datetime.now().strftime("%Y-%m-%d,%H:%M:%S,")
-    return time
+    time_sys = datetime.datetime.now().strftime("%Y-%m-%d,%H:%M:%S,")
+    return time_sys
 
 # get es time
 def es_time():
-    time = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
-    return time
+    time_es = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
+    return time_es
+
+def fetch_minute():
+    minute = datetime.datetime.now().strftime("%M")
+    return minute
 
 # start logger
 the_date_is = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -42,7 +46,7 @@ sensor_3 = "/sys/bus/w1/devices/28-011452c161aa/w1_slave"  # Outlet
 
 
 # define Elasticsearch address
-es=Elasticsearch([{'host':'homeassistant.tomatogod','port':9200}])
+es=Elasticsearch([{'host':'192.168.1.179','port':9200}])
 
 # Check point
 log_file.write(the_time_is() + " Working Directory is: " + working_directory + "\n")
@@ -78,7 +82,7 @@ log_file.write(the_time_is() + " Sensor 1 reading is : " + str(read_temp_1()) + 
 
 # collect sensor raw file 2
 def raw_2():
-    while os.path.isfile(sensor_1) is False:
+    while os.path.isfile(sensor_2) is False:
         log_file.write("\n" + the_time_is() + " Sensor 2 failed")
         time.sleep(1)
     else:
@@ -126,16 +130,6 @@ def read_temp_3():
 
 log_file.write(the_time_is() + " Sensor 3 reading is : " + str(read_temp_3()) + " \n")
 
-# compare time cheap electric time to see if heater should be on
-def should_heater_be_on():
-    t = datetime.datetime.now().strftime("%H:%M")
-    if t >= ("02:30") and t < ("06:30"):
-        return(1)
-    else:
-        return(0)
-
-log_file.write(the_time_is() + " Should heater be on : " + str(should_heater_be_on()) + " \n")
-
 # call tplink script to toggle smart plug (pump should always be on when heater is)
 def switch_on_heater():
     subprocess.call(working_directory + "tplink_smartplug.py -t hottubheater.tomatogod -c on", shell=True)
@@ -157,8 +151,8 @@ new_pump_state = 0
 current_pump_state = 0
 new_heater_state = 0
 current_heater_state = 0
-intake_max = 35
-intake_min = 10
+intake_max = 0.0
+gain = 0
 
 log_file.write(the_time_is() + " new_pump_state : " + str(new_pump_state) + " \n")
 log_file.write(the_time_is() + " current_pump_state : " + str(current_pump_state) + " \n")
@@ -170,35 +164,36 @@ log_file.close()
 # program loop
 while True:
     log_file = open(log_output_folder + the_date_is + "_hottub.log", "a+")
-
     temp1 = round(read_temp_1(), 1)
     temp2 = round(read_temp_2(), 1)
     temp3 = round(read_temp_3(), 1)
-    buffer = 5.6
-    gain = round(temp3 - temp2, 1)
+    time_sys = datetime.datetime.now().strftime("%H:%M:%S")
+    buffer = 1
 
     # write temperture readings to log
-    log_file.write("\n" + the_time_is() + " Panel: " + str(temp1) + "," + " Intake: " + str(temp2) + "," + " Outlet: " + str(temp3) + "," + " Gain: " + str(gain) + ",")
+    log_file.write("\n" + the_time_is() + " Panel: " + str(temp1))
+    log_file.write("\n" + the_time_is() + " Intake: " + str(temp2))
+    log_file.write("\n" + the_time_is() + " Outlet: " + str(temp3))
+    log_file.write("\n" + the_time_is() + " Intake Max: " + str(intake_max))
+    log_file.write("\n" + the_time_is() + " Gain: " + str(gain))
 
-    # set intake max of session
+    #delete elasticsearch index daily to stop storing too much data
+    if time_sys >= ("00:00:00") and time_sys < ("00:01:01"):
+        es.indices.delete(index='temperatures', ignore=[400, 404])
+        log_file.write("\n" + the_time_is() + " Resetting ElasticSearch Data, and reset intake_Max to 0")
+        intake_max = 0.0
+    else:
+        pass
+
+    # set intake max
     if intake_max < temp2:
         intake_max = temp2
-        log_file.write(" Intake Max: " + str(intake_max) + ",")
     else:
-        log_file.write(" Intake Max: " + str(intake_max) + ",")
+        pass
 
-    # set intake max of session
-    if intake_min > temp2:
-        intake_min = temp2
-        log_file.write(" Intake Min: " + str(intake_min) + ",")
-    else:
-        log_file.write(" Intake Min: " + str(intake_min) + ",")
-
-    # determine if heater should be on
-    if should_heater_be_on() == 1 and temp3 < 36:
-        intake_max = temp3
-        intake_min = temp3
-        new_heater_state = 1
+    # determine if heater should be on (optional)
+    if time_sys >= ("02:30:00") and time_sys < ("06:30:00") and intake_max < 35:
+        new_heater_state = 0
     else:
         new_heater_state = 0
 
@@ -216,35 +211,53 @@ while True:
 
     # compare new pump state to current pump state
     if new_pump_state == 1 and current_pump_state == 0:
-        log_file.write(" Switch pump: on,")
+        log_file.write("\n" + the_time_is() + " Switch pump: on,")
         switch_on_pump()
         pump_state = "True"
         current_pump_state = 1
     elif new_pump_state == 1 and current_pump_state == 1:
-        log_file.write(" Pump: on,")
+        log_file.write("\n" + the_time_is() + " Pump: on,")
         pump_state = "True"
     elif new_pump_state == 0 and current_pump_state == 1:
-        log_file.write(" Switch pump: off,")
+        log_file.write("\n" + the_time_is() + " Switch pump: off,")
         current_pump_state = 0
         pump_state = "False"
         switch_off_pump()
     else:
-        log_file.write(" Pump: off,")
+        log_file.write("\n" + the_time_is() + " Pump: off,")
         pump_state = "False"
 
     # compare heater new state to heater current state
     if new_heater_state == 1 and current_heater_state == 0:
-        log_file.write(" Switch heater: on,")
+        log_file.write("\n" + the_time_is() + " Switch heater: on,")
         switch_on_heater()
         current_heater_state = 1
     elif new_heater_state == 1 and current_heater_state == 1:
-        log_file.write(" Heater: on,")
+        log_file.write("\n" + the_time_is() + " Heater: on,")
     elif new_heater_state == 0 and current_heater_state == 1:
-        log_file.write(" Switch heater: off,")
+        log_file.write("\n" + the_time_is() + " Switch heater: off,")
         switch_off_heater()
         current_heater_state = 0
     else:
-        log_file.write(" Heater: off,")
+        log_file.write("\n" + the_time_is() + " Heater: off,")
+
+    # only calculate gain value if pump is on otherwise set to 0
+    if pump_state == "True" and current_heater_state == 0:
+        gain = round(temp3 - temp2, 1)
+    else:
+        gain = 0
+
+    # make pump / heater state human readable
+
+    if current_pump_state == 1:
+        pumponoroff = "On"
+    else:
+        pumponoroff = "Off"
+
+    if current_heater_state == 1:
+        heateronoroff = "On"
+    else:
+        heateronoroff = "Off"
 
     # build elasticsearch payload
     es_payload={
@@ -252,23 +265,20 @@ while True:
         "Solar Panel": temp1,
         "Intake": temp2,
         "Outlet": temp3,
-        "Pump": current_pump_state,
-        "Heater": current_heater_state,
+        "Pump": pumponoroff,
+        "Heater": heateronoroff,
         "Max": intake_max,
-        "Min": intake_min,
         "Gain": gain,
       }
 
     # send payload to elasticsearch
     try:
-        res = es.index(index='temperatures',doc_type='_doc',body=es_payload)
+        res = es.index(index='temperatures', doc_type='_doc', body=es_payload)
     except:
-        log_file.write(" Error Sending to ElasticSearch, ignoring...")
+        log_file.write("\n" + the_time_is() + " Error Sending to ElasticSearch, ignoring...")
+    
 
-    # send payload to static document
-    try:
-        res = es.index(index='temperatures', doc_type='_doc', id='CSdmU3AB5mZWiXGYthJE', body=es_payload)
-    except:
-        log_file.write(" Error Sending to ElasticSearch, ignoring...")
-
+    # sleep between cycles
+    log_file.write("\n" + the_time_is() + " Sleeping..." + "\n")
+    time.sleep(57)
     log_file.close()
