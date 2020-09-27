@@ -1,7 +1,6 @@
 # Hot Tub Controller
 # Written by ToMaToGoD
-
-Version = 0.4
+Version = 0.46
 
 import os
 import time
@@ -9,14 +8,19 @@ import datetime
 import subprocess
 from elasticsearch import Elasticsearch
 import statistics
+from configparser import ConfigParser
 
 # load probe modules
 os.system('modprobe w1-gpio')
 os.system('modprobe w1-therm')
 
+#config parser settings
+parser = ConfigParser()
+parser.read('/home/pi/apps/hot_tub_controller/hot_tub_control.ini')
+
 # set working directory
-working_directory = "/home/pi/apps/hot_tub_controller/"
-log_output_folder = "/home/pi/apps/hot_tub_controller/logs/"
+working_directory = parser.get('global', 'working_directory')
+log_output_folder = parser.get('global', 'log_output_folder')
 
 # get time
 def the_time_is():
@@ -40,13 +44,14 @@ log_file.write(the_time_is() + " Version : " + str(Version) + " \n")
 
 # define sensor folders
 subprocess.call("ls /sys/bus/w1/devices/", shell=True)
-sensor_1 = "/sys/bus/w1/devices/28-011452e79daa/w1_slave"  # Solar panel
-sensor_2 = "/sys/bus/w1/devices/28-011452dc93aa/w1_slave"  # Intake
-sensor_3 = "/sys/bus/w1/devices/28-011452c161aa/w1_slave"  # Outlet
-
+sensor_1 = parser.get('global', 'sensor_1')  # Solar panel
+sensor_2 = parser.get('global', 'sensor_2')  # Intake
+sensor_3 = parser.get('global', 'sensor_3')  # Outlet
 
 # define Elasticsearch address
-es=Elasticsearch([{'host':'192.168.1.179','port':9200}])
+elasticsearchserverip = parser.get('global', 'elasticsearchserverip')
+elasticserachserverport = parser.get('global', 'elasticsearchserverport')
+es=Elasticsearch([{'host':elasticsearchserverip,'port':elasticserachserverport}])
 
 # Check point
 log_file.write(the_time_is() + " Working Directory is: " + working_directory + "\n")
@@ -146,7 +151,7 @@ def switch_on_pump():
 def switch_off_pump():
     subprocess.call(working_directory + "tplink_smartplug.py -t hottubpump.tomatogod -c off", shell=True)
 
-# set states to default off
+# set states to default values
 new_pump_state = 0
 current_pump_state = 0
 new_heater_state = 0
@@ -163,19 +168,30 @@ log_file.close()
 
 # program loop
 while True:
+    time_sys = datetime.datetime.now().strftime("%H:%M:%S")
     log_file = open(log_output_folder + the_date_is + "_hottub.log", "a+")
+
+    # get running settings from config ini
+    parser.read('/home/pi/apps/hot_tub_controller/hot_tub_control.ini') 
+    buffer = int(parser.get('running', 'buffer'))
+    heatingswitch = parser.get('running', 'heatingswitch')
+    heatingstarttime = parser.get('running', 'heatingstarttime')
+    heatingendtime = parser.get('running', 'heatingendtime')
+    heatinglimitmax = parser.get('running', 'heatinglimitmax')
+    sleeptime = int(parser.get('running', 'sleeptime'))
+
+    #get current sensor temps
     temp1 = round(read_temp_1(), 1)
     temp2 = round(read_temp_2(), 1)
     temp3 = round(read_temp_3(), 1)
-    time_sys = datetime.datetime.now().strftime("%H:%M:%S")
-    buffer = 1
-
+    
     # write temperture readings to log
     log_file.write("\n" + the_time_is() + " Panel: " + str(temp1))
     log_file.write("\n" + the_time_is() + " Intake: " + str(temp2))
     log_file.write("\n" + the_time_is() + " Outlet: " + str(temp3))
     log_file.write("\n" + the_time_is() + " Intake Max: " + str(intake_max))
     log_file.write("\n" + the_time_is() + " Gain: " + str(gain))
+    log_file.write("\n" + the_time_is() + " Buffer: " + str(buffer))
 
     #delete elasticsearch index daily to stop storing too much data
     if time_sys >= ("00:00:00") and time_sys < ("00:01:01"):
@@ -190,10 +206,10 @@ while True:
         intake_max = temp2
     else:
         pass
-
+    
     # determine if heater should be on (optional)
-    if time_sys >= ("02:30:00") and time_sys < ("06:30:00") and intake_max < 35:
-        new_heater_state = 0
+    if time_sys >= (heatingstarttime) and time_sys < (heatingendtime) and intake_max < heatinglimitmax:
+        new_heater_state = int(heatingswitch)
     else:
         new_heater_state = 0
 
@@ -277,8 +293,7 @@ while True:
     except:
         log_file.write("\n" + the_time_is() + " Error Sending to ElasticSearch, ignoring...")
     
-
-    # sleep between cycles
-    log_file.write("\n" + the_time_is() + " Sleeping..." + "\n")
-    time.sleep(57)
+    # sleep cycle
+    log_file.write("\n" + the_time_is() + " Waiting for " + str(sleeptime) + " seconds..." + "\n")
+    time.sleep(sleeptime)
     log_file.close()
